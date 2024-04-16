@@ -1,0 +1,171 @@
+---
+title: "exercise_12"
+author: "Turner Lime"
+date: "2024-04-15"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning= FALSE, message= FALSE, echo = TRUE)
+```
+
+### Initialize Libraries
+```{r}
+library(tidyverse)
+library(dplyr)
+library(skimr)
+library(MuMIn)
+```
+#### Preliminaries {.unnumbered}
+
+- Using the {tidyverse} `read_tsv()` function, load the "Mammal_lifehistories_v2.txt" dataset from [this URL](https://raw.githubusercontent.com/difiore/ada-2024-datasets/main/Mammal_lifehistories_v2.txt) as a "tibble" named **d**. As discussed in class, this is dataset that compiles life history and other variables for over 1400 species of placental mammals from 17 different Orders.
+
+> **Data source**:
+>
+> Ernest SKM. (2003). Life history characteristics of placental nonvolant mammals. *Ecology* 84: 3402–3402.
+
+```{r}
+x <- read_tsv("https://raw.githubusercontent.com/difiore/ada-2024-datasets/main/Mammal_lifehistories_v2.txt")
+d <- tibble(x)
+```
+
+- Do a bit of exploratory data analysis with this dataset, e.g., using the {skimr} package. Which of the variables are categorical and which are numeric?
+
+```{r}
+skim(d)
+```
+##### **Based upon my skimming of the data, it appears that the first 4 variables in the dataset ('order', 'family', 'Genus', and 'species') are all categorical variables, and the rest are numeric.**
+
+## Challenge
+#### Step 1 {.unnumbered}
+
+- Replace all values of -999 (the authors' code for missing data) with `NA`.
+```{r}
+d[d== '-999'] <- NA
+```
+
+#### Step 2 {.unnumbered}
+
+- Drop the variables **litter size** and **refs**.
+```{r}
+d <- d |> select(
+  -c("litter size", "refs")
+)
+```
+
+#### Step 3 {.unnumbered}
+
+- Log transform **all** of the other numeric variables.
+```{r}
+cat("log Transformation Confirmation:\n", "Sample Value Before log Transformation: ", d$`mass(g)`[[1]], "\n", sep= "")
+d <- d |> mutate_if(
+  is.numeric, log
+)
+cat("Sample Value After log Transformation:", d$`mass(g)`[[1]])
+```
+
+#### Step 4 {.unnumbered}
+
+- Regress the (now log transformed) age [**gestation(mo)**, **weaning(mo)**, **AFR(mo)** (age at first reproduction), and **max. life(mo)** (maximum lifespan)] and mass [**newborn(g)** and **wean mass(g)**] variables on (now log transformed) overall body **mass(g)** and add the residuals to the dataframe as new variables (**relGest**, **relWean**, **relAFR**, **relLife**, **relNewbornMass**, and **relWeaningMass**).
+```{r}
+relGest_lm <- lm(d$`mass(g)` ~ d$`gestation(mo)`, na.action= na.exclude)
+relWean_lm <- lm(d$`mass(g)` ~ d$`weaning(mo)`, na.action= na.exclude)
+relAFR_lm <- lm(d$`mass(g)` ~ d$`AFR(mo)`, na.action= na.exclude)
+relmax.life_lm <- lm(d$`mass(g)`~ d$`max. life(mo)`, na.action= na.exclude)
+relNewbornMass_lm <- lm(d$`mass(g)` ~ d$`newborn(g)`, na.action= na.exclude)
+relWeaningMass_lm <- lm(d$`mass(g)` ~ d$`wean mass(g)`, na.action= na.exclude)
+
+d <- d |> mutate(
+  relGest = resid(relGest_lm),
+  relWean = resid(relWean_lm),
+  relAFR = resid(relAFR_lm),
+  relLife = resid(relmax.life_lm),
+  relNewbornMass = resid(relNewbornMass_lm),
+  relWeaningMass = resid(relWeaningMass_lm)
+)
+```
+
+#### Step 5 {.unnumbered}
+
+- Plot residuals of max lifespan (**relLife**) in relation to **Order**. Which mammalian orders have the highest residual lifespan?
+```{r}
+p1 <- ggplot(data= d, aes(x= relLife, y= order)) +
+  geom_boxplot() + geom_jitter(alpha= 0.4, aes(color= order))
+p1
+```
+
+##### **Based on the boxplots above, the order 'Perissodactyla' has the highest mean residual Lifespan (relLife), though the highest recorded value of all of the data is in the order 'Sirenia.'**
+
+- Plot residuals of newborn mass (**relNewbornMass**) in relation to **Order**. Which mammalian orders have the have highest residual newborn mass?
+```{r}
+p2 <- ggplot(data= d, aes(x= relNewbornMass, y= order)) +
+  geom_boxplot() + geom_jitter(alpha= 0.4, aes(color= order))
+p2
+```
+
+##### **Based on the boxplots above, the order 'Carnivora' has the highest mean residual Newborn Mass (relNewbornMass), as well as the highest recorded value of all of the data.**
+
+- Plot residuals of weaning mass (**relWeaningMass**) in relation to **Order**. Which mammalian orders have the have highest relative weaning mass?
+```{r}
+p3 <- ggplot(data= d, aes(x= relWeaningMass, y= order)) +
+  geom_boxplot() + geom_jitter(alpha= 0.4, aes(color= order))
+p3
+```
+
+##### **Based on the boxplots above, the order 'Xenarthra' has the highest mean residual Weaning Mass (relWeaningMass), though the highest recorded value of all of the data is in the order 'Carnivora.'**
+
+#### Step 6 {.unnumbered}
+
+- Run models and a model selection process to evaluate what (now log transformed) variables best predict each of the two response variables, **max. life(mo)** and **AFR(mo)**, from the set of the following predictors: **gestation(mo)**, **newborn(g)**, **weaning(mo)**, **wean mass(g)**, **litters/year**, and overall body **mass(g)**.\
+```{r}
+# drop rows that have NA values in any of the predictor or response variables
+d <- d |> drop_na()
+```
+
+```{r}
+# create full model for 'max. life(mo).'
+m_maxlife_full <- lm(data= d, `max. life(mo)` ~ `gestation(mo)` + `newborn(g)` + `weaning(mo)` + `wean mass(g)` + `litters/year` + `mass(g)`, na.action= na.fail)
+
+# run model comparison using the dredge() function form the {MuMin} package
+mods_maxlife <- dredge(m_maxlife_full)
+mods_maxlife.res <- get.models(mods_maxlife, subset= TRUE)
+
+# create summary of model averages and specify a delta cutoff of 4. This averages the model selection object 'mods_AFR'
+mods_maxlife.avg <- summary(model.avg(mods_maxlife, subset= delta <= 4, fit= TRUE))
+```
+
+```{r}
+# create full model for 'AFR(mo).'
+m_AFR_full <- lm(data= d, `AFR(mo)` ~ `gestation(mo)` + `newborn(g)` + `weaning(mo)` + `wean mass(g)` + `litters/year` + `mass(g)`, na.action= na.fail)
+
+# run model comparison using the dredge() function form the {MuMin} package
+mods_AFR <- dredge(m_AFR_full)
+mods_AFR.res <- get.models(mods_AFR, subset= TRUE)
+
+# create summary of model averages and specify a delta cutoff of 4. This averages the model selection object 'mods_AFR'
+mods_AFR.avg <- summary(model.avg(mods_AFR, subset= delta <= 4, fit= TRUE))
+```
+- For each of the two response variables, indicate what is the best model overall based on AICc and how many models have a delta AICc of 4 or less.
+
+##### **For the model of 'max. life(mo)' the the best model was [max. life(mo) ~ gestation(mo) + litters/year + mass(g) + weaning(mo)], and there were 5 models with a delta <= 4. For the model of 'AFR(mo)' the best model was [AFR(mo) ~ gestation(mo) + litters/year + mass(g) + weaning(mo)], and there were 10 models with a delta <= 4.**
+```{r}
+# show model averaging results
+mods_maxlife.avg$msTable
+mods_AFR.avg$msTable
+```
+
+- What variables, if any, appear in all of this set of "top" models?
+
+##### **For the comparison of models for 'max. life(mo)', the predictors 'gestation(mo),' 'litters/year,' and 'weaning(mo)' were included in all of the "top" models. For the comparison of models for 'AFR(mo)', the predictors 'gestation(mo)' and 'litters/year' were included in all of the "top" models.**
+
+- Calculate and plot the model-averaged coefficients and their CIs across this set of top models.
+
+##### **Plot of model-averaged coefficients and their 95% CIs across the "top" models (delta <= 4) for 'max. life(mo)'**
+```{r}
+plot(mods_maxlife.avg, full= TRUE)
+```
+
+##### **Plot of model-averaged coefficients and their 95% CIs across the "top" models (delta <= 4) for 'AFR(mo)'**
+```{r}
+plot(mods_AFR.avg, full= TRUE)
+```
